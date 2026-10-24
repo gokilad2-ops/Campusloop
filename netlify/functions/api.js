@@ -1,7 +1,6 @@
 // CampusLoop API: one Netlify Function handling all actions.
 // Data lives in Netlify Blobs (shared across users and devices).
 // Passwords are hashed with scrypt. Admin is set from environment variables.
-const { getStore } = require('@netlify/blobs');
 const crypto = require('crypto');
 
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
@@ -25,7 +24,15 @@ const json = (status, obj) => ({
   body: JSON.stringify(obj)
 });
 const clean = (v, max) => String(v ?? '').trim().slice(0, max);
-const store = () => getStore('campusloop');
+// Load Netlify Blobs with dynamic import (works whether the package is CJS or ESM)
+let _store = null;
+async function store() {
+  if (!_store) {
+    const { getStore } = await import('@netlify/blobs');
+    _store = getStore('campusloop');
+  }
+  return _store;
+}
 
 function seedDb() {
   const I = (id, title, cat, cond, price, days, desc) => ({
@@ -65,7 +72,7 @@ function verify(pw, stored) {
 }
 
 async function load() {
-  const db = (await store().get('state', { type: 'json' })) || seedDb();
+  const db = (await (await store()).get('state', { type: 'json' })) || seedDb();
   // Create the admin account from environment variables if it doesn't exist yet
   if (ADMIN_EMAIL && ADMIN_PASSWORD && !db.users[ADMIN_REG]) {
     db.users[ADMIN_REG] = { reg: ADMIN_REG, name: 'CampusLoop Admin', dept: 'CSE', year: '', phone: '', email: ADMIN_EMAIL, role: 'admin', hash: await hash(ADMIN_PASSWORD) };
@@ -74,7 +81,7 @@ async function load() {
   for (const t of Object.keys(db.sessions)) if (db.sessions[t].exp < now) delete db.sessions[t];
   return db;
 }
-const save = db => store().setJSON('state', db);
+const save = async db => (await store()).setJSON('state', db);
 
 function me(db, token) {
   const s = token && db.sessions[token];
