@@ -1,11 +1,12 @@
 // CampusLoop API: one Netlify Function handling all actions.
 // Data lives in Netlify Blobs (shared across users and devices).
 // Passwords are hashed with scrypt. Admin is set from environment variables.
-const crypto = require('crypto');
+import crypto from 'crypto';
+import { getStore } from '@netlify/blobs';
 
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
-const ADMIN_REG = process.env.ADMIN_REG || '2025509999';
+const ADMIN_REG = process.env.ADMIN_REG || '2025503589';
 const CATS = ['Books', 'Study Materials', 'Electronics', 'Clothing', 'Stationery', 'Accessories', 'Hostel Essentials', 'Other'];
 const CONDS = ['New', 'Like New', 'Good', 'Fair'];
 const DEPTS = ['CSE', 'ECE', 'EEE', 'IT', 'Mechanical', 'Civil'];
@@ -18,21 +19,13 @@ class HttpError extends Error {
   constructor(status, msg) { super(msg); this.status = status; }
 }
 const fail = (s, m) => { throw new HttpError(s, m); };
-const json = (status, obj) => ({
-  statusCode: status,
-  headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
-  body: JSON.stringify(obj)
+const json = (status, obj) => new Response(JSON.stringify(obj), {
+  status,
+  headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
 });
 const clean = (v, max) => String(v ?? '').trim().slice(0, max);
-// Load Netlify Blobs with dynamic import (works whether the package is CJS or ESM)
-let _store = null;
-async function store() {
-  if (!_store) {
-    const { getStore } = await import('@netlify/blobs');
-    _store = getStore('campusloop');
-  }
-  return _store;
-}
+// Netlify Blobs is configured automatically for modern (v2) functions
+const store = () => getStore('campusloop');
 
 function seedDb() {
   const I = (id, title, cat, cond, price, days, desc) => ({
@@ -72,16 +65,24 @@ function verify(pw, stored) {
 }
 
 async function load() {
-  const db = (await (await store()).get('state', { type: 'json' })) || seedDb();
+  const db = (await store().get('state', { type: 'json' })) || seedDb();
   // Create the admin account from environment variables if it doesn't exist yet
-  if (ADMIN_EMAIL && ADMIN_PASSWORD && !db.users[ADMIN_REG]) {
-    db.users[ADMIN_REG] = { reg: ADMIN_REG, name: 'CampusLoop Admin', dept: 'CSE', year: '', phone: '', email: ADMIN_EMAIL, role: 'admin', hash: await hash(ADMIN_PASSWORD) };
+  // Admin account is controlled only by environment variables (ADMIN_REG, ADMIN_EMAIL, ADMIN_PASSWORD).
+  // It is created or promoted automatically, and the password updates when the variable changes.
+  if (ADMIN_EMAIL && ADMIN_PASSWORD) {
+    const sig = crypto.createHash('sha256').update(ADMIN_PASSWORD + '|' + ADMIN_EMAIL).digest('hex');
+    let a = db.users[ADMIN_REG];
+    if (!a) a = db.users[ADMIN_REG] = { reg: ADMIN_REG, name: 'CampusLoop Admin', dept: 'CSE', year: '', phone: '', email: ADMIN_EMAIL };
+    if (a.role !== 'admin' || a.sig !== sig || !a.hash) {
+      a.role = 'admin'; a.email = ADMIN_EMAIL; a.sig = sig; a.hash = await hash(ADMIN_PASSWORD);
+    }
+    for (const u of Object.values(db.users)) if (u.reg !== ADMIN_REG && u.role === 'admin') u.role = 'student';
   }
   const now = Date.now();
   for (const t of Object.keys(db.sessions)) if (db.sessions[t].exp < now) delete db.sessions[t];
   return db;
 }
-const save = async db => (await store()).setJSON('state', db);
+const save = db => store().setJSON('state', db);
 
 function me(db, token) {
   const s = token && db.sessions[token];
@@ -266,10 +267,10 @@ const A = {
   }
 };
 
-exports.handler = async (event) => {
-  if (event.httpMethod !== 'POST') return json(405, { error: 'Method not allowed.' });
+export default async (req) => {
+  if (req.method !== 'POST') return json(405, { error: 'Method not allowed.' });
   let b;
-  try { b = JSON.parse(event.body || '{}'); } catch { return json(400, { error: 'Invalid request.' }); }
+  try { b = JSON.parse((await req.text()) || '{}'); } catch { return json(400, { error: 'Invalid request.' }); }
   if (!Object.prototype.hasOwnProperty.call(A, b.action)) return json(400, { error: 'Unknown action.' });
   try {
     const db = await load();
