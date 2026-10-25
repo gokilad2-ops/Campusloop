@@ -60,8 +60,8 @@ function seedDb() {
       I(9, 'Gel Pen Pack (10)', 'Stationery', 'New', 40, 5, 'Unopened pack, assorted colours.'),
       I(10, 'Study Desk Lamp', 'Hostel Essentials', 'Good', 150, 180, 'Warm LED lamp with adjustable neck.')
     ],
-    reqs: [], notes: [], tickets: [], reports: [], wish: {}, viewed: {}, sessions: {},
-    nid: 1, rid: 1, iid: 20, tid: 1, pid: 1
+    reqs: [], messages: [], notes: [], tickets: [], reports: [], wish: {}, viewed: {}, sessions: {},
+    nid: 1, rid: 1, iid: 20, tid: 1, pid: 1, mid: 1
   };
 }
 
@@ -88,6 +88,8 @@ async function load() {
     db = (await (await netlifyStore()).get('state', { type: 'json' })) || seedDb();
   }
   db.reports ||= [];
+  db.messages ||= [];
+  db.mid ||= db.messages.reduce((max, message) => Math.max(max, Number(message.id) || 0), 0) + 1;
   db.pid ||= db.reports.reduce((max, report) => Math.max(max, Number(report.id) || 0), 0) + 1;
   // Create the admin account from environment variables if it doesn't exist yet
   // Admin account is controlled only by environment variables (ADMIN_REG, ADMIN_EMAIL, ADMIN_PASSWORD).
@@ -275,6 +277,33 @@ const A = {
       addN(db, r.from, 'ok', `Handoff of ${i.title} marked as complete. Enjoy! ✿`);
     }
     return { ok: true };
+  },
+
+  async conversation(db, b) {
+    const u = me(db, b.token), id = Number(b.id);
+    const r = db.reqs.find(x => x.id === id);
+    if (!r || (u.reg !== r.from && u.reg !== r.to)) fail(403, 'This conversation is not available to you.');
+    if (!['Accepted', 'Completed'].includes(r.status)) fail(400, 'Chat is available after the seller accepts the request.');
+    return {
+      status: r.status,
+      title: db.items.find(x => x.id === r.item)?.title || 'CampusLoop item',
+      messages: db.messages.filter(message => message.request === r.id).sort((a, b) => a.ts - b.ts)
+    };
+  },
+
+  async sendMessage(db, b) {
+    const u = me(db, b.token), id = Number(b.id);
+    const r = db.reqs.find(x => x.id === id);
+    if (!r || (u.reg !== r.from && u.reg !== r.to)) fail(403, 'This conversation is not available to you.');
+    if (r.status !== 'Accepted') fail(400, 'Messaging is available while the accepted request is active.');
+    const text = String(b.text ?? '').trim();
+    if (!text) fail(400, 'Write a message first.');
+    if (text.length > 1000) fail(400, 'Messages must be 1,000 characters or less.');
+    const message = { id: db.mid++, request: r.id, from: u.reg, to: u.reg === r.from ? r.to : r.from, text, ts: Date.now() };
+    db.messages.push(message);
+    const title = db.items.find(x => x.id === r.item)?.title || 'your requested item';
+    addN(db, message.to, 'contact', `New message about "${title}" from ${u.name}.`);
+    return { ok: true, message };
   },
 
   async wish(db, b) {

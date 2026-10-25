@@ -94,3 +94,14 @@ input:disabled,select:disabled{opacity:.5;cursor:not-allowed}
 
 /* Help Center ticket statuses */
 .tag.Open{background:#cfe8ff}.tag.InProgress{background:#ffe08a}.tag.Resolved{background:var(--lime)}
+.chat-status{margin:8px 0;color:#555}
+.chat-messages{display:flex;flex-direction:column;gap:9px;max-height:48vh;min-height:120px;overflow:auto;padding:10px;background:var(--lime2);border:1px solid #dce8cf;border-radius:18px}
+.chat-bubble{max-width:85%;padding:10px 13px;border-radius:18px;background:#fff;overflow-wrap:anywhere}
+.chat-bubble.mine{align-self:flex-end;background:var(--lime)}
+.chat-bubble.theirs{align-self:flex-start}
+.chat-bubble p{margin:4px 0;white-space:pre-wrap}
+.chat-bubble small{font-size:10px}
+.chat-form{display:flex;align-items:flex-end;gap:8px;margin:10px 0}
+.chat-form textarea{flex:1;min-height:50px;resize:vertical;border-radius:16px}
+.chat-closed{margin:10px 0;padding:10px 12px;background:var(--pink);border-radius:16px}
+@media(max-width:520px){.chat-form{align-items:stretch;flex-direction:column}.chat-form .btn{align-self:flex-end}}

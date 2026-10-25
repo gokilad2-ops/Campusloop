@@ -32,6 +32,8 @@ Admins can review private listing reports in the Help Center. Students can repor
 
 Explore Finds supports text search, category, listing type, price, availability, and sort filters. Owners can mark listings available or reserved; accepting a request reserves the item, and marking the handoff complete closes it.
 
+After a seller accepts a request, the buyer and seller can privately message each other from their dashboard to discuss the handoff and negotiate the price. Messages are limited to 1,000 characters; the conversation is read-only after the request is marked complete.
+
 ## Updating the site later
 Edit files, commit, and push to GitHub. Vercel deploys changes from the connected branch automatically.
 

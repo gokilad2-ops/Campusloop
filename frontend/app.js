@@ -20,7 +20,7 @@ const PRODUCT_PHOTOS={1:'https://images.unsplash.com/photo-1516979187457-637abb4
 
 const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"']/g,c=>'&#'+c.charCodeAt(0)+';');
 let S=null;                       // server state for the signed-in student
-let F={q:'',cat:'All',type:'',status:'',free:false,sort:'new'},TAB='list',EDIT=null,IMG='',CUR='home',MODE='login',CB=null,qi=0;
+let F={q:'',cat:'All',type:'',status:'',free:false,sort:'new'},TAB='list',EDIT=null,IMG='',CUR='home',MODE='login',CB=null,qi=0,CHAT_ID=null,CHAT_TIMER=0,CHAT_LOADING=false,CHAT_SENDING=false;
 
 const isAdmin=()=>S.me.role==='admin';
 const U=r=>S.users[r]||{name:'Unknown',reg:r,phone:'—',email:'—',dept:'',year:''};
@@ -33,8 +33,8 @@ function imgFail(el){el.onerror=null;const ic=el.dataset.ic||'📦',p=el.parentN
 const opts=(a,v)=>a.map(x=>`<option${x===v?' selected':''}>${x}</option>`).join('');
 
 function toast(m,ok=1){const t=$('#toast');t.textContent=m;t.className=ok?'':'bad';t.style.display='block';clearTimeout(t.h);t.h=setTimeout(()=>t.style.display='none',3000)}
-const modal=h=>$('#modal').innerHTML=`<div class=mb onclick="if(event.target==this)closeM()"><div class=mc><button class=x onclick="closeM()" aria-label=Close>✕</button>${h}</div></div>`;
-const closeM=()=>$('#modal').innerHTML='';
+const modal=h=>{clearInterval(CHAT_TIMER);CHAT_TIMER=0;CHAT_ID=null;$('#modal').innerHTML=`<div class=mb onclick="if(event.target==this)closeM()"><div class=mc><button class=x onclick="closeM()" aria-label=Close>✕</button>${h}</div></div>`};
+const closeM=()=>{clearInterval(CHAT_TIMER);CHAT_TIMER=0;CHAT_ID=null;$('#modal').innerHTML=''};
 function ask(msg,fn){CB=fn;modal(`<h2 class=pix style="font-size:18px">Are you sure?</h2><p style="margin:10px 0 16px">${msg}</p><button class="btn r" onclick="closeM();CB()">Yes, continue</button>`)}
 
 /* ---------- server calls ---------- */
@@ -116,6 +116,46 @@ function contact(id){const x=item(id),o=U(x.owner);
   <div class=ci>🌿 <b>Safe handoff:</b> meet on campus in a public place, in daylight, and bring a friend.</div>`}
 function request(id){closeM();run('request',{id},'Notified to the owner ✓')}
 const respond=(id,st)=>run('respond',{id,status:st},'Request '+st.toLowerCase()+'.');
+function openChat(id){
+  const r=S.reqs.find(x=>x.id===id),x=r&&item(r.item);
+  if(!r)return;
+  modal(`<h2 class=pix style="font-size:18px">Chat about ${esc(x?.title||'your request')}</h2><p id=chatStatus class=chat-status>Loading conversation…</p><div id=chatMessages class=chat-messages aria-live=polite></div>
+  ${r.status==='Accepted'?`<form class=chat-form onsubmit="return sendChat(event,${id})"><textarea id=chatText maxlength=1000 rows=2 placeholder="Discuss the price or make an offer…" required></textarea><button class="btn g" id=chatSend>Send message</button></form>`:'<p class=chat-closed>This request is completed. You can view the conversation, but can no longer send messages.</p>'}
+  <small>Only the buyer and seller can see this conversation.</small>`);
+  CHAT_ID=id;
+  loadChat(id);
+  CHAT_TIMER=setInterval(()=>loadChat(id,true),4000);
+}
+async function loadChat(id,silent=false){
+  if(CHAT_ID!==id||CHAT_LOADING||CHAT_SENDING)return;
+  CHAT_LOADING=true;
+  try{
+    const data=await api('conversation',{id});
+    if(CHAT_ID!==id)return;
+    const box=$('#chatMessages'),wasNearBottom=box.scrollHeight-box.scrollTop-box.clientHeight<50;
+    box.innerHTML=data.messages.length?data.messages.map(m=>`<div class="chat-bubble ${m.from===S.me.reg?'mine':'theirs'}"><b>${esc(U(m.from).name)}</b><p>${esc(m.text)}</p><small>${new Date(m.ts).toLocaleString()}</small></div>`).join(''):'<p class=empty>No messages yet. Start by discussing the price or making an offer.</p>';
+    if(wasNearBottom)box.scrollTop=box.scrollHeight;
+    const status=$('#chatStatus');if(status)status.textContent=data.status==='Accepted'?'Request accepted · discuss the handoff and agree on a price here.':'Request completed';
+  }catch(err){
+    if(CHAT_ID===id){const status=$('#chatStatus');if(status)status.textContent='Could not load messages: '+err.message;if(!silent)toast(err.message,0);clearInterval(CHAT_TIMER);CHAT_TIMER=0}
+  }finally{CHAT_LOADING=false}
+}
+async function sendChat(e,id){
+  e.preventDefault();
+  if(CHAT_SENDING||CHAT_ID!==id)return false;
+  const input=$('#chatText'),button=$('#chatSend'),text=input.value.trim();
+  if(!text)return false;
+  CHAT_SENDING=true;button.disabled=true;
+  try{
+    await api('sendMessage',{id,text});
+    input.value='';
+    toast('Message sent ✓');
+    try{await refresh();render()}catch(err){toast('Message sent, but your dashboard could not refresh: '+err.message,0)}
+    await loadChat(id,true);
+  }catch(err){toast(err.message,0)}
+  finally{CHAT_SENDING=false;if(CHAT_ID===id&&$('#chatSend'))$('#chatSend').disabled=false}
+  return false;
+}
 function editItem(id){if(item(id).owner!==S.me.reg)return;EDIT=id;IMG=item(id).img||'';go('give')}
 function delItem(id){const x=item(id);if(!x||x.owner!==S.me.reg)return;ask(`Delete "${esc(x.title)}" permanently?`,()=>run('deleteItem',{id},'Listing deleted.'))}
 const setStatus=(id,s)=>run('setStatus',{id,status:s});
@@ -171,8 +211,8 @@ function dash(){const m=S.me,mine=S.items.filter(i=>i.owner===m.reg),inc=S.reqs.
     list:()=>mine.map(i=>`<div class=row2><span><b>${esc(i.title)}</b> · ${money(i)} · <span class="tag ${i.status}">${i.status}</span> · ${S.reqs.filter(r=>r.item===i.id&&r.status==='Pending').length} pending</span>
       <span class=row style="margin:0"><button class="btn sm r" onclick="editItem(${i.id})">Edit</button><button class="btn sm g" onclick="setStatus(${i.id},'${i.status==='Available'?'Reserved':'Available'}')">${i.status==='Available'?'Mark reserved':'Mark available'}</button><button class="btn sm red" onclick="delItem(${i.id})">Delete</button></span></div>`).join('')||empty,
     inc:()=>inc.map(r=>`<div class=row2><span><b>${esc(U(r.from).name)}</b> (${r.from}) wants <b>${esc(item(r.item)?.title||'(removed)')}</b> · ${r.date} · <span class="tag ${r.status}">${r.status}</span></span>
-      <span class=row style="margin:0">${r.status==='Pending'?`<button class="btn sm g" onclick="respond(${r.id},'Accepted')">Accept</button><button class="btn sm red" onclick="respond(${r.id},'Declined')">Decline</button>`:''}${r.status==='Accepted'?`<button class="btn sm" onclick="respond(${r.id},'Completed')">Mark completed</button>`:''}</span></div>`).join('')||empty,
-    out:()=>out.map(r=>`<div class=row2><span><b>${esc(item(r.item)?.title||'(removed)')}</b> · Owner: ${esc(U(r.to).name)} · ${r.date}</span><span class="tag ${r.status}">${r.status}</span></div>`).join('')||empty,
+      <span class=row style="margin:0">${r.status==='Pending'?`<button class="btn sm g" onclick="respond(${r.id},'Accepted')">Accept</button><button class="btn sm red" onclick="respond(${r.id},'Declined')">Decline</button>`:''}${r.status==='Accepted'?`<button class="btn sm g" onclick="openChat(${r.id})">Message buyer</button><button class="btn sm" onclick="respond(${r.id},'Completed')">Mark completed</button>`:''}${r.status==='Completed'?`<button class="btn sm r" onclick="openChat(${r.id})">View chat</button>`:''}</span></div>`).join('')||empty,
+    out:()=>out.map(r=>`<div class=row2><span><b>${esc(item(r.item)?.title||'(removed)')}</b> · Owner: ${esc(U(r.to).name)} · ${r.date}</span><span class=row style="margin:0"><span class="tag ${r.status}">${r.status}</span>${r.status==='Accepted'?`<button class="btn sm g" onclick="openChat(${r.id})">Message seller</button>`:''}${r.status==='Completed'?`<button class="btn sm r" onclick="openChat(${r.id})">View chat</button>`:''}</span></div>`).join('')||empty,
     notes:()=>notesHTML(99),
     wish:()=>wl.length?`<div class=grid>${wl.map(card).join('')}</div>`:empty};
   return `<section class=hero><div><h1 class=pix>MY<br><span>DASHBOARD</span></h1><p style="margin-top:8px">Your little corner of campus.</p></div><div class=art>${sp('smile',8)}</div></section>
