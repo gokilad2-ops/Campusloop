@@ -20,7 +20,7 @@ const PRODUCT_PHOTOS={1:'https://images.unsplash.com/photo-1516979187457-637abb4
 
 const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"']/g,c=>'&#'+c.charCodeAt(0)+';');
 let S=null;                       // server state for the signed-in student
-let F={q:'',cat:'All',type:'',free:false,sort:'new'},TAB='list',EDIT=null,IMG='',CUR='home',MODE='login',CB=null,qi=0;
+let F={q:'',cat:'All',type:'',status:'',free:false,sort:'new'},TAB='list',EDIT=null,IMG='',CUR='home',MODE='login',CB=null,qi=0;
 
 const isAdmin=()=>S.me.role==='admin';
 const U=r=>S.users[r]||{name:'Unknown',reg:r,phone:'—',email:'—',dept:'',year:''};
@@ -104,7 +104,13 @@ function openItem(id){const x=item(id),m=S.me,own=x.owner===m.reg,o=U(x.owner),r
   <div class=pr style="font-size:22px">${money(x)}</div><p style="margin:8px 0">${esc(x.desc)}</p>
   <p><b>${x.cat}</b> · ${x.cond} · Used ${x.days} days · <span class="tag ${x.status}">${x.status}</span></p>
   <small>Seller: ${esc(o.name)} (${o.reg})</small>
-  ${own?'<p class=ci>This is your listing.</p>':`<div class=row><button class="btn r" onclick="contact(${id})">Contact seller</button><button class="btn g" ${rq?'disabled':''} onclick="request(${id})">${rq?'Request pending':'Request item · '+money(x)}</button></div><div id=ci></div>`}`)}
+  ${own?'<p class=ci>This is your listing.</p>':`<div class=row><button class="btn r" onclick="contact(${id})">Contact seller</button><button class="btn g" ${rq||x.status!=='Available'?'disabled':''} onclick="request(${id})">${rq?'Request pending':x.status==='Available'?'Request item · '+money(x):'Not available'}</button><button class="btn sm r" onclick="reportItem(${id})">Report listing</button></div><div id=ci></div>`}`)}
+function reportItem(id){const x=item(id);if(!x||x.owner===S.me.reg)return;
+  modal(`<h2 class=pix style="font-size:18px">Report listing</h2><p style="margin:8px 0">Tell the admin why "${esc(x.title)}" should be reviewed. Reports are private.</p>
+  <form onsubmit="return submitReport(event,${id})"><label>Reason</label><select id=reportReason required>${['Misleading or inaccurate listing','Prohibited or unsafe item','Inappropriate content','Suspected scam','Other'].map(x=>`<option>${x}</option>`).join('')}</select>
+  <label>Details (optional)</label><textarea id=reportDetails maxlength=500 placeholder="Add helpful context for the admin"></textarea>
+  <div class=row><button class=btn>Send private report</button></div></form>`)}
+async function submitReport(e,id){e.preventDefault();try{await api('reportListing',{id,reason:$('#reportReason').value,details:$('#reportDetails').value});closeM();await refresh();if(CUR==='help')render();toast('Report sent privately to the admin.')}catch(err){toast(err.message,0)}return false}
 function contact(id){const x=item(id),o=U(x.owner);
   $('#ci').innerHTML=`<div class=ci><b>${esc(o.name)}</b><br>Reg no: ${x.owner}<br>📱 ${esc(o.phone||'—')}<br>✉️ ${esc(o.email||'—')}<br>${esc(o.dept)}${o.year?' · '+esc(o.year):''}</div>
   <div class=ci>🌿 <b>Safe handoff:</b> meet on campus in a public place, in daylight, and bring a friend.</div>`}
@@ -131,13 +137,14 @@ async function publish(e){e.preventDefault();const g=id=>$('#'+id).value.trim(),
   return false}
 
 /* ---------- pages ---------- */
-function drawG(){const q=F.q.toLowerCase(),L=S.items.filter(i=>(F.cat==='All'||i.cat===F.cat)&&(!F.type||i.type===F.type)&&(!F.free||i.price==0)&&
+function drawG(){const q=F.q.toLowerCase(),L=S.items.filter(i=>(F.cat==='All'||i.cat===F.cat)&&(!F.type||i.type===F.type)&&(!F.status||i.status===F.status)&&(!F.free||i.price==0)&&
     (!q||(i.title+' '+i.desc+' '+i.cat+' '+U(i.owner).name).toLowerCase().includes(q))).sort(SRT[F.sort]);
-  $('#grid').innerHTML=L.length?L.map(card).join(''):'<p class=empty style="grid-column:1/-1">Nothing here yet. Every treasure deserves a second story.</p>'}
+  $('#grid').innerHTML=L.length?L.map(card).join(''):'<p class=empty style="grid-column:1/-1">No listings match those filters. Try changing your search.</p>'}
 function browse(){const L=S.items.filter(i=>i.price<200&&i.status==='Available'&&i.price>=0).slice(0,6);
   return `<section class=hero><div><h1 class=pix>FIND YOUR NEXT<br><span>FAVOURITE THING</span></h1><p style="margin-top:8px">Good finds from students around you.</p></div><div class=art>${sp('flower',7)}${sp('sprout',7)}</div></section>
   <div class="bar"><input placeholder="🔎 Search name, description, category or seller" value="${esc(F.q)}" oninput="F.q=this.value;drawG()" aria-label=Search>
   <select onchange="F.type=this.value;drawG()" aria-label="Listing type">${[['','Donated & paid'],['Donate','Donated'],['Sell','Paid']].map(([v,t])=>`<option value="${v}" ${F.type===v?'selected':''}>${t}</option>`).join('')}</select>
+  <select onchange="F.status=this.value;drawG()" aria-label="Availability">${[['','All statuses'],['Available','Available'],['Reserved','Reserved'],['Completed','Completed']].map(([v,t])=>`<option value="${v}" ${F.status===v?'selected':''}>${t}</option>`).join('')}</select>
   <label class=chk><input type=checkbox ${F.free?'checked':''} onchange="F.free=this.checked;drawG()">Free only</label>
   <select onchange="F.sort=this.value;drawG()" aria-label=Sort>${[['new','Sort: Newest'],['pl','Price: low to high'],['ph','Price: high to low'],['da','Days used: fewest'],['dd','Days used: most']].map(([v,t])=>`<option value="${v}" ${F.sort===v?'selected':''}>${t}</option>`).join('')}</select></div>
   <div class=tiles>${TILES.map(([c,e])=>`<button class="tile ${F.cat==c?'on':''}" onclick="F.cat='${c}';render()">${e} ${c}</button>`).join('')}</div>
@@ -214,12 +221,18 @@ function help(){const adm=isAdmin(),mine=(S.tickets||[]).slice().sort((a,b)=>b.t
     <small>${adm?'From '+esc(U(t.from).name)+' ('+t.from+') · ':''}${new Date(t.ts).toLocaleString()}</small><p style="margin-top:8px;white-space:pre-wrap">${esc(t.message)}</p>
     ${t.reply?`<div class=ci><b>Admin reply</b><br>${esc(t.reply)}</div>`:''}
     ${adm?`<label>Reply to student</label><textarea id="reply${t.id}" rows=2 placeholder="Write a reply">${esc(t.reply||'')}</textarea>
-      <div class=row><button class="btn sm g" onclick="replyTicket(${t.id})">Save reply</button><button class="btn sm" onclick="statusTicket(${t.id},'In Progress')">In progress</button><button class="btn sm r" onclick="statusTicket(${t.id},'Resolved')">Mark resolved</button><button class="btn sm r" onclick="statusTicket(${t.id},'Open')">Reopen</button></div>`:''}</div>`).join(''):'<p class=empty>No support tickets yet.</p>'}</div>`}
+      <div class=row><button class="btn sm g" onclick="replyTicket(${t.id})">Save reply</button><button class="btn sm" onclick="statusTicket(${t.id},'In Progress')">In progress</button><button class="btn sm r" onclick="statusTicket(${t.id},'Resolved')">Mark resolved</button><button class="btn sm r" onclick="statusTicket(${t.id},'Open')">Reopen</button></div>`:''}</div>`).join(''):'<p class=empty>No support tickets yet.</p>'}</div>
+  ${adm?`<div class=help-card><h2 class=pix>Private listing reports (${(S.reports||[]).length})</h2><p style="color:#555;margin-top:5px">Only admins can view reports and reporter details.</p>
+  ${(S.reports||[]).length?S.reports.slice().sort((a,b)=>b.ts-a.ts).map(r=>`<div class=ticket><div style="display:flex;gap:10px;justify-content:space-between;flex-wrap:wrap"><b>${esc(r.reason)}</b><span class="tag ${esc(r.status)}">${esc(r.status)}</span></div>
+  <small>${esc(item(r.item)?.title||r.title||'Removed listing')} · Reported by ${esc(U(r.from).name)} (${esc(r.from)}) · ${new Date(r.ts).toLocaleString()}</small>
+  ${r.details?`<p style="margin-top:8px;white-space:pre-wrap">${esc(r.details)}</p>`:''}
+  ${r.status==='Open'?`<div class=row><button class="btn sm g" onclick="setReportStatus(${r.id},'Reviewed')">Mark reviewed</button><button class="btn sm r" onclick="setReportStatus(${r.id},'Dismissed')">Dismiss report</button></div>`:''}</div>`).join(''):'<p class=empty>No listing reports yet.</p>'}</div>`:''}`}
 const TOPICS_UI=['Account or login','Listing problem','Request problem','Report inappropriate content','Bug or suggestion','Other'];
 function submitTicket(e){const message=$('#hmsg').value.trim();if(!message)return bad('Please enter a message.');
   run('ticket',{topic:$('#htopic').value,email:$('#hemail').value.trim(),message},'Support ticket submitted ✓')}
 const replyTicket=id=>run('ticketReply',{id,reply:$('#reply'+id).value},'Reply saved ✓');
 const statusTicket=(id,status)=>run('ticketStatus',{id,status},'Status updated ✓');
+const setReportStatus=(id,status)=>run('setReportStatus',{id,status},'Report status updated.');
 const PAGES={home,browse,requests,give,dash,help,profile};
 
 /* ---------- render ---------- */

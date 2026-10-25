@@ -12,6 +12,7 @@ const CONDS = ['New', 'Like New', 'Good', 'Fair'];
 const DEPTS = ['CSE', 'ECE', 'EEE', 'IT', 'Mechanical', 'Civil'];
 const YEARS = ['1st Year', '2nd Year', '3rd Year', '4th Year'];
 const TOPICS = ['Account or login', 'Listing problem', 'Request problem', 'Report inappropriate content', 'Bug or suggestion', 'Other'];
+const REPORT_REASONS = ['Misleading or inaccurate listing', 'Prohibited or unsafe item', 'Inappropriate content', 'Suspected scam', 'Other'];
 const TSTAT = ['Open', 'In Progress', 'Resolved'];
 const SESSION_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -46,8 +47,8 @@ function seedDb() {
       I(9, 'Gel Pen Pack (10)', 'Stationery', 'New', 40, 5, 'Unopened pack, assorted colours.'),
       I(10, 'Study Desk Lamp', 'Hostel Essentials', 'Good', 150, 180, 'Warm LED lamp with adjustable neck.')
     ],
-    reqs: [], notes: [], tickets: [], wish: {}, viewed: {}, sessions: {},
-    nid: 1, rid: 1, iid: 20, tid: 1
+    reqs: [], notes: [], tickets: [], reports: [], wish: {}, viewed: {}, sessions: {},
+    nid: 1, rid: 1, iid: 20, tid: 1, pid: 1
   };
 }
 
@@ -66,6 +67,8 @@ function verify(pw, stored) {
 
 async function load() {
   const db = (await store().get('state', { type: 'json' })) || seedDb();
+  db.reports ||= [];
+  db.pid ||= db.reports.reduce((max, report) => Math.max(max, Number(report.id) || 0), 0) + 1;
   // Create the admin account from environment variables if it doesn't exist yet
   // Admin account is controlled only by environment variables (ADMIN_REG, ADMIN_EMAIL, ADMIN_PASSWORD).
   // It is created or promoted automatically, and the password updates when the variable changes.
@@ -127,6 +130,7 @@ const A = {
       reqs: db.reqs.filter(r => r.from === u.reg || r.to === u.reg),
       notes: db.notes.filter(n => n.to === u.reg),
       tickets: adm ? db.tickets : db.tickets.filter(t => t.from === u.reg),
+      reports: adm ? db.reports : [],
       wish: db.wish[u.reg] || [],
       viewed: db.viewed[u.reg] || []
     };
@@ -178,6 +182,34 @@ const A = {
     if (i.owner !== u.reg) fail(403, 'Not allowed.');
     if (!['Available', 'Reserved'].includes(b.status)) fail(400, 'Invalid status.');
     i.status = b.status;
+    return { ok: true };
+  },
+
+  async reportListing(db, b) {
+    const u = me(db, b.token), i = findItem(db, b.id);
+    if (i.owner === u.reg) fail(400, "You can't report your own listing.");
+    if (!REPORT_REASONS.includes(b.reason)) fail(400, 'Please choose a report reason.');
+    if (db.reports.some(r => r.item === i.id && r.from === u.reg && r.status === 'Open')) {
+      fail(400, 'You already have an open report for this listing.');
+    }
+    const report = {
+      id: db.pid++, item: i.id, title: i.title, owner: i.owner, from: u.reg,
+      reason: b.reason, details: clean(b.details, 500), status: 'Open', ts: Date.now()
+    };
+    db.reports.unshift(report);
+    addN(db, ADMIN_REG, 'req', `${u.name} reported the listing "${i.title}" for admin review.`);
+    return { ok: true };
+  },
+
+  async setReportStatus(db, b) {
+    const u = me(db, b.token);
+    if (!isAdmin(u)) fail(403, 'Admin access required.');
+    const report = db.reports.find(r => r.id === Number(b.id));
+    if (!report) fail(404, 'Report not found.');
+    if (!['Reviewed', 'Dismissed'].includes(b.status)) fail(400, 'Invalid report status.');
+    if (report.status !== 'Open') fail(400, 'This report has already been reviewed.');
+    report.status = b.status;
+    addN(db, report.from, 'ok', `Your report about "${report.title}" was ${b.status.toLowerCase()}.`);
     return { ok: true };
   },
 

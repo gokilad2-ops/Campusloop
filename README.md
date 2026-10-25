@@ -24,6 +24,10 @@ CampusLoop/
 ## Admin
 Log in with the `ADMIN_REG` number and `ADMIN_PASSWORD`. The admin account is created or updated automatically from these settings. To change the admin password, change `ADMIN_PASSWORD` and redeploy. Admin rights never come from anything a user can edit.
 
+Admins can review private listing reports in the Help Center. Students can report another user's listing from its details; reports are visible only to admins, and repeat open reports for the same listing are prevented.
+
+Explore Finds supports text search, category, listing type, price, availability, and sort filters. Owners can mark listings available or reserved; accepting a request reserves the item, and marking the handoff complete closes it.
+
 ## Updating the site later
 Edit files, commit and push to GitHub. Netlify redeploys automatically.
 
