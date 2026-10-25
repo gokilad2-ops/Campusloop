@@ -87,7 +87,7 @@ function navTo(k){
 function go(p){if(p!=='messages'){clearInterval(CHAT_TIMER);CHAT_TIMER=0}CUR=p;render();scrollTo(0,0);if(p==='messages')loadInbox(CHAT_ID,false,true)}
 function shell(h){const m=S.me,un=unread();
   return `<div class=app><nav class=side><div class="logo pix">CAMPUS<b>LOOP</b></div><div class=who><b>${esc(m.name)}</b><br>${m.reg}${isAdmin()?' · admin':''}</div>
-  ${NAV.map(([k,i,t])=>`<button class="nb ${CUR==k?'on':''}" onclick="navTo('${k}')">${sp(i,3)}${t}${k==='dash'&&un?`<span class=ct>${un}</span>`:''}${k==='messages'&&S.unreadMessages?`<span class=ct>${S.unreadMessages}</span>`:''}</button>`).join('')}
+  ${NAV.map(([k,i,t])=>`<button id="nav-${k}" class="nb ${CUR==k?'on':''}" onclick="navTo('${k}')">${sp(i,3)}${t}${k==='dash'&&un?`<span class=ct>${un}</span>`:''}${k==='messages'&&S.unreadMessages?`<span class=ct id=message-count>${S.unreadMessages}</span>`:''}</button>`).join('')}
   <div style="flex:1"></div><button class=nb onclick="logout()">⎋ Log out</button></nav><main class=main>${h}</main></div>`}
 
 /* ---------- shared pieces ---------- */
@@ -140,6 +140,7 @@ function openChat(id){
 }
 async function loadInbox(selectId=CHAT_ID,silent=false,markRead=false){
   if(INBOX_LOADING||CUR!=='messages')return;
+  const previousId=CHAT_ID;
   INBOX_LOADING=true;
   try{
     const data=await api('inbox');
@@ -149,7 +150,8 @@ async function loadInbox(selectId=CHAT_ID,silent=false,markRead=false){
     else selectId=currentId;
     CHAT_ID=selectId;
     if(!CHAT_ID){CHAT_MESSAGES=[];render();clearInterval(CHAT_TIMER);CHAT_TIMER=0;return}
-    render();
+    if(previousId!==CHAT_ID||!document.querySelector('.inbox-layout'))render();
+    else updateInboxThreads();
     await loadChat(CHAT_ID,true,markRead);
     if(CUR==='messages'&&CHAT_ID&&!CHAT_TIMER)CHAT_TIMER=setInterval(()=>loadInbox(CHAT_ID,true),5000);
   }catch(err){INBOX_ERROR=err.message;if(!silent)toast(err.message,0);render();clearInterval(CHAT_TIMER);CHAT_TIMER=0}
@@ -163,11 +165,15 @@ async function loadChat(id,silent=false,markRead=false){
     const data=await api('conversation',{id});
     if(CHAT_ID!==id)return;
     const oldLog=$('#inboxChatLog'),oldTop=oldLog?.scrollTop||0,wasNearBottom=!oldLog||oldLog.scrollHeight-oldLog.scrollTop-oldLog.clientHeight<50;
+    const statusChanged=CHAT_STATUS!==data.status;
     CHAT_MESSAGES=data.messages;CHAT_STATUS=data.status;
     S.unreadMessages=data.unreadMessages;
     const thread=INBOX?.find(x=>x.request===id);
     if(thread){thread.unread=0;const latest=data.messages[data.messages.length-1];if(latest){thread.lastMessage=latest.text;thread.lastAt=latest.ts}}
-    render();
+    if(statusChanged||!oldLog){render();return}
+    oldLog.innerHTML=chatMessagesHTML(CHAT_MESSAGES);
+    updateInboxThreads();
+    updateMessageBadge();
     const newLog=$('#inboxChatLog');if(newLog)newLog.scrollTop=wasNearBottom?newLog.scrollHeight:oldTop;
   }catch(err){
     if(CHAT_ID===id){INBOX_ERROR=err.message;if(!silent)toast(err.message,0);clearInterval(CHAT_TIMER);CHAT_TIMER=0;render()}
@@ -181,6 +187,7 @@ async function sendChat(e,id){
   CHAT_SENDING=true;button.disabled=true;
   try{
     await api('sendMessage',{id,text});
+    input.value='';
     toast('Message sent ✓');
     CHAT_SENDING=false;
     try{await refresh()}catch(err){toast('Message sent, but your unread count could not refresh: '+err.message,0)}
@@ -282,14 +289,23 @@ function requests(){const m=S.me,av=S.items.filter(i=>i.owner!==m.reg&&i.status=
   <div class=pk><h2 class=pix>Available items (${av.length})</h2>${av.map(x=>`<div class=row2><span>${ICON[x.cat]||'📦'} <b>${esc(x.title)}</b> · ${money(x)} · ${x.cond} · Seller: ${esc(U(x.owner).name)}</span>
     <span class=row style="margin:0"><button class="btn sm" onclick="openItem(${x.id})">View</button><button class="btn sm g" onclick="request(${x.id})">Request</button></span></div>`).join('')||empty}</div>
   <div class="pk" style="background:#fff"><h2 class=pix>My requests (${out.length})</h2>${out.map(r=>`<div class=row2><span><b>${esc(item(r.item)?.title||'(removed)')}</b> · Owner: ${esc(U(r.to).name)} · ${r.date}</span><span class="tag ${r.status}">${r.status}</span></div>`).join('')||empty}</div>`}
+function chatMessagesHTML(messages){return messages.length?messages.map(message=>`<div class="chat-bubble ${message.from===S.me.reg?'mine':'theirs'}"><b>${esc(U(message.from).name)}</b><p>${esc(message.text)}</p><small>${new Date(message.ts).toLocaleString()}</small></div>`).join(''):'<p class=empty>No messages yet. Start by discussing the price or making an offer.</p>'}
+function inboxThreadsHTML(threads){return `<h2>Chats</h2>${threads.length?threads.map(thread=>`<button class="inbox-thread ${thread.request===CHAT_ID?'active':''}" onclick="openChat(${thread.request})">
+  <span class=inbox-avatar>${esc((thread.other.name||'?').slice(0,1).toUpperCase())}</span><span class=inbox-summary><b>${esc(thread.other.name)}</b><small>${esc(thread.title)}</small><span class=inbox-preview>${esc(thread.lastMessage)}</span></span>
+  <span class=inbox-side>${thread.unread?`<i class=inbox-unread>${thread.unread}</i>`:''}${thread.lastAt?`<small>${new Date(thread.lastAt).toLocaleDateString()}</small>`:`<small>New</small>`}</span></button>`).join(''):`<p class=empty>No chats yet. Once a seller accepts your request, the conversation will appear here.</p>`}`}
+function updateInboxThreads(){const el=document.querySelector('.inbox-threads');if(el)el.innerHTML=inboxThreadsHTML(INBOX||[])}
+function updateMessageBadge(){
+  const nav=$('#nav-messages');if(!nav)return;
+  let badge=$('#message-count');
+  if(S.unreadMessages){if(!badge){badge=document.createElement('span');badge.id='message-count';badge.className='ct';nav.append(badge)}badge.textContent=S.unreadMessages}
+  else if(badge)badge.remove();
+}
 function messages(){
   const threads=INBOX||[],selected=threads.find(thread=>thread.request===CHAT_ID);
   const body=!INBOX?`<div class=inbox-placeholder>${INBOX_ERROR?`Could not load messages: ${esc(INBOX_ERROR)}`:'Loading your inbox…'}</div>`:
-    `<div class=inbox-layout><aside class=inbox-threads><h2>Chats</h2>${threads.length?threads.map(thread=>`<button class="inbox-thread ${thread.request===CHAT_ID?'active':''}" onclick="openChat(${thread.request})">
-      <span class=inbox-avatar>${esc((thread.other.name||'?').slice(0,1).toUpperCase())}</span><span class=inbox-summary><b>${esc(thread.other.name)}</b><small>${esc(thread.title)}</small><span class=inbox-preview>${esc(thread.lastMessage)}</span></span>
-      <span class=inbox-side>${thread.unread?`<i class=inbox-unread>${thread.unread}</i>`:''}${thread.lastAt?`<small>${new Date(thread.lastAt).toLocaleDateString()}</small>`:`<small>New</small>`}</span></button>`).join(''):`<p class=empty>No chats yet. Once a seller accepts your request, the conversation will appear here.</p>`}</aside>
+    `<div class=inbox-layout><aside class=inbox-threads>${inboxThreadsHTML(threads)}</aside>
     <section class=inbox-conversation>${selected?`<header class=inbox-header><div><h2>${esc(selected.other.name)}</h2><p>${esc(selected.title)} · Request ${selected.status.toLowerCase()}</p></div><span class="tag ${selected.status}">${selected.status}</span></header>
-      <div id=inboxChatLog class=chat-messages aria-live=polite>${CHAT_MESSAGES.length?CHAT_MESSAGES.map(message=>`<div class="chat-bubble ${message.from===S.me.reg?'mine':'theirs'}"><b>${esc(U(message.from).name)}</b><p>${esc(message.text)}</p><small>${new Date(message.ts).toLocaleString()}</small></div>`).join(''):'<p class=empty>No messages yet. Start by discussing the price or making an offer.</p>'}</div>
+      <div id=inboxChatLog class=chat-messages aria-live=polite>${chatMessagesHTML(CHAT_MESSAGES)}</div>
       ${selected.status==='Accepted'?`<form class=chat-form onsubmit="return sendChat(event,${selected.request})"><textarea id=chatText maxlength=1000 rows=2 placeholder="Discuss the price or make an offer…" required></textarea><button class="btn g" id=chatSend>Send</button></form>`:'<p class=chat-closed>This request is completed. You can read the conversation, but can no longer send messages.</p>'}
       <small>Only you and ${esc(selected.other.name)} can see this conversation.</small>`:`<div class=inbox-placeholder>Select a chat to read and reply to messages.</div>`}</section></div>`;
   return `<section class=hero><div><h1 class=pix>MESSAGES</h1><p style="margin-top:8px">Private chats about your accepted requests.</p></div><div class=art>${sp('mail',8)}</div></section>${body}`;
