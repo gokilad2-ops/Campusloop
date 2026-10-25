@@ -100,10 +100,17 @@ function card(x){const w=(S.wish||[]).includes(x.id);
 const wish=id=>run('wish',{id},j=>j.saved?'Saved for later ♥':'Removed from wishlist');
 function notesHTML(n){const L=S.notes.slice().sort((a,b)=>b.ts-a.ts).slice(0,n);
   if(!L.length)return '<p class=empty>Every treasure deserves a second story.</p>';
-  return (L.some(x=>!x.read)?`<div class=row style="margin:0 0 6px"><button class="btn sm r" onclick="readAll()">Mark all as read</button></div>`:'')+
-    L.map(x=>{const r=x.requestId&&S.reqs.find(q=>q.id===x.requestId),actions=r&&r.to===S.me.reg&&r.status==='Pending'?`<button class="btn sm g" onclick="respond(${r.id},'Accepted')">Accept</button><button class="btn sm red" onclick="respond(${r.id},'Declined')">Decline</button>`:r&&['Accepted','Completed'].includes(r.status)?`<button class="btn sm g" onclick="openChat(${r.id})">${r.status==='Accepted'?(r.to===S.me.reg?'Message buyer':'Message seller'):'View chat'}</button>`:'';return `<div class="nt ${x.read?'':'unread'}"><span>${KI[x.k]||'🌱'} ${x.read?'':'🔴 '}${esc(x.msg)}<br><small>${new Date(x.ts).toLocaleString()}</small></span><span class=row style="margin:0">${actions}${!x.read?`<button class="btn sm r" onclick="readN(${x.id})">Mark as read</button>`:''}</span></div>`}).join('')}
-const readN=id=>run('readNotes',{id});
-const readAll=()=>run('readNotes',{});
+  return L.map(x=>{
+      const r=(x.requestId&&S.reqs.find(q=>q.id===x.requestId))||(x.k==='req'&&S.reqs.find(q=>q.to===S.me.reg&&q.status==='Pending'&&x.msg.includes(`(${q.from})`)));
+      const actionable=r&&r.to===S.me.reg&&r.status==='Pending';
+      const actions=actionable
+        ?`<button class="btn sm g" onclick="respond(${r.id},'Accepted')">Accept</button><button class="btn sm red" onclick="respond(${r.id},'Declined')">Decline</button>`
+        :r&&r.status==='Accepted'
+          ?`<button class="btn sm g" onclick="openChat(${r.id})">${r.to===S.me.reg?'Message buyer':'Message seller'}</button>`
+          :r&&r.status==='Completed'?`<button class="btn sm r" onclick="openChat(${r.id})">View chat</button>`:'';
+      return `<div class="nt ${x.read?'':'unread'}"><span>${KI[x.k]||'🌱'} ${x.read?'':'🔴 '}${esc(x.msg)}<br><small>${new Date(x.ts).toLocaleString()}</small></span><span class=row style="margin:0">${actions}</span></div>`;
+    }).join('')}
+const showNotes=()=>{TAB='notes';run('readNotes',{})};
 
 /* ---------- items & requests ---------- */
 function openItem(id){const x=item(id),m=S.me,own=x.owner===m.reg,o=U(x.owner),rq=S.reqs.some(r=>r.item===id&&r.from===m.reg&&r.status==='Pending');
@@ -243,7 +250,7 @@ function dash(){const m=S.me,mine=S.items.filter(i=>i.owner===m.reg),inc=S.reqs.
     wish:()=>wl.length?`<div class=grid>${wl.map(card).join('')}</div>`:empty};
   return `<section class=hero><div><h1 class=pix>MY<br><span>DASHBOARD</span></h1><p style="margin-top:8px">Your little corner of campus.</p></div><div class=art>${sp('smile',8)}</div></section>
   <div class=stats><div><b>${mine.length}</b>Listings</div><div><b>${inc.filter(r=>r.status==='Pending').length}</b>To answer</div><div><b>${out.length}</b>Requests sent</div></div>
-  <div class=tiles>${T.map(([k,t])=>`<button class="tile ${TAB===k?'on':''}" onclick="TAB='${k}';render()">${t}</button>`).join('')}</div>
+  <div class=tiles>${T.map(([k,t])=>`<button class="tile ${TAB===k?'on':''}" onclick="${k==='notes'?'showNotes()':`TAB='${k}';render()`}">${t}</button>`).join('')}</div>
   <div class=pk>${body[TAB]()}</div>`}
 function home(){const m=S.me,A=S.items,rec=[...A].sort(SRT.new).slice(0,4),rv=(S.viewed||[]).map(item).filter(Boolean);
   return `<section class=hero><div><p class=pix style="color:var(--gr)">Welcome, ${esc(m.name.split(' ')[0])} ✿</p><h1 class=pix>GOOD FINDS.<br><span>BETTER FUTURES.</span></h1>

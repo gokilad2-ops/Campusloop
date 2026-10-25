@@ -180,7 +180,11 @@ const A = {
       users: Object.fromEntries(Object.values(db.users).map(x => [x.reg, pub(x)])),
       items: db.items,
       reqs: db.reqs.filter(r => r.from === u.reg || r.to === u.reg),
-      notes: db.notes.filter(n => n.to === u.reg),
+      notes: db.notes.filter(n => n.to === u.reg).map(note => {
+        if (note.requestId || note.k !== 'req') return note;
+        const request = db.reqs.find(r => r.to === u.reg && r.status === 'Pending' && note.msg.includes(`(${r.from})`));
+        return request ? { ...note, requestId: request.id } : note;
+      }),
       unreadMessages: db.messages.filter(message => message.to === u.reg && !message.read).length,
       tickets: adm ? db.tickets : db.tickets.filter(t => t.from === u.reg),
       reports: adm ? db.reports : [],
@@ -284,6 +288,12 @@ const A = {
     if (!i) fail(404, 'This item was removed.');
     if (!['Accepted', 'Declined', 'Completed'].includes(b.status)) fail(400, 'Invalid status.');
     r.status = b.status;
+    db.notes.forEach(note => {
+      if (note.to === u.reg && note.k === 'req' && (note.requestId === r.id || (!note.requestId && note.msg.includes(`(${r.from})`)))) {
+        note.requestId = r.id;
+        note.read = true;
+      }
+    });
     if (b.status === 'Accepted') {
       i.status = 'Reserved';
       db.reqs.filter(x => x.item === i.id && x.status === 'Pending').forEach(x => {
