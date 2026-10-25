@@ -58,7 +58,7 @@ label{font-weight:700;font-size:12px;display:block;margin:12px 0 4px}
 .mc .x{position:absolute;top:14px;right:14px;z-index:2;border:0;background:#000;color:#fff;width:34px;height:34px;border-radius:50%;cursor:pointer}
 .ci{background:var(--lime2);border-radius:18px;padding:12px 16px;margin-top:12px;line-height:1.7}
 .empty{color:#555;padding:10px}
-@media(max-width:820px){.app,.auth{grid-template-columns:1fr}.side{position:static;height:auto;flex-direction:row;overflow-x:auto;border-radius:24px}.logo{display:none}.nb{white-space:nowrap}.fg{grid-template-columns:1fr}}
+@media(max-width:820px){.app,.auth{grid-template-columns:minmax(0,1fr)}.auth>*{width:100%;min-width:0}.auth .art{flex-wrap:wrap;justify-content:center;max-width:100%}.side{position:static;height:auto;flex-direction:row;overflow-x:auto;border-radius:24px}.logo{display:none}.nb{white-space:nowrap}.fg{grid-template-columns:1fr}}
 
 /* ---- additions for CampusLoop features ---- */
 .panel{background:#fff;border-radius:30px;padding:24px;margin-top:16px}
