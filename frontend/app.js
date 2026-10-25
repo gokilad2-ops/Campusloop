@@ -1,5 +1,5 @@
-/* CampusLoop frontend. All data comes from /.netlify/functions/api (shared database). */
-const API='/.netlify/functions/api',TK='cl_token',LAST='cl_last';
+/* CampusLoop frontend. All data comes from /api (shared database). */
+const API='/api',TK='cl_token',LAST='cl_last';
 const P={k:'#1b1b1b',g:'#6cc24a',d:'#7fd05a',T:'#3a8a3c',s:'#fff1e8',m:'#bfe6a6',e:'#e5557a',b:'#ffb3c1',l:'#b9f08a',p:'#f08a8a',q:'#c85a6a',f:'#f6a0b4',h:'#ffd1da',w:'#fff'};
 const SP={
 girl:["..gg........gg..","..gg..kkkk..gg..","....kkmmmmkk....","...kmmmmmmmmk...","..kmmmmmmmmmmk..","..kmmssssssmmk..","..kmssssssssmk..","..kmseesseesmk..","..kmssssbbssmk..","...kmsssssssmk..","....kkssssskk...","...kkllllllllkk.","..kllllllllllllk","..kddddddddddddk",".....ss....ss...",".....kk....kk..."],

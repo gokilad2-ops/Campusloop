@@ -2,7 +2,7 @@
 // Data lives in Netlify Blobs (shared across users and devices).
 // Passwords are hashed with scrypt. Admin is set from environment variables.
 import crypto from 'crypto';
-import { getStore } from '@netlify/blobs';
+import { createClient } from '@supabase/supabase-js';
 
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
@@ -25,8 +25,21 @@ const json = (status, obj) => new Response(JSON.stringify(obj), {
   headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
 });
 const clean = (v, max) => String(v ?? '').trim().slice(0, max);
-// Netlify Blobs is configured automatically for modern (v2) functions
-const store = () => getStore('campusloop');
+let database;
+function store() {
+  if (!database) {
+    const url = process.env.SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!url || !key) throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be configured.');
+    database = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  }
+  return database;
+}
+const useSupabase = () => process.env.DATA_BACKEND === 'supabase';
+const netlifyStore = async () => {
+  const { getStore } = await import('@netlify/blobs');
+  return getStore('campusloop');
+};
 
 function seedDb() {
   const I = (id, title, cat, cond, price, days, desc) => ({
@@ -66,7 +79,14 @@ function verify(pw, stored) {
 }
 
 async function load() {
-  const db = (await store().get('state', { type: 'json' })) || seedDb();
+  let db;
+  if (useSupabase()) {
+    const { data, error } = await store().from('campusloop_state').select('state').eq('id', 'state').maybeSingle();
+    if (error) throw error;
+    db = data?.state || seedDb();
+  } else {
+    db = (await (await netlifyStore()).get('state', { type: 'json' })) || seedDb();
+  }
   db.reports ||= [];
   db.pid ||= db.reports.reduce((max, report) => Math.max(max, Number(report.id) || 0), 0) + 1;
   // Create the admin account from environment variables if it doesn't exist yet
@@ -85,7 +105,18 @@ async function load() {
   for (const t of Object.keys(db.sessions)) if (db.sessions[t].exp < now) delete db.sessions[t];
   return db;
 }
-const save = db => store().setJSON('state', db);
+async function save(db) {
+  if (useSupabase()) {
+    const { error } = await store().from('campusloop_state').upsert({
+      id: 'state',
+      state: db,
+      updated_at: new Date().toISOString()
+    });
+    if (error) throw error;
+  } else {
+    await (await netlifyStore()).setJSON('state', db);
+  }
+}
 
 function me(db, token) {
   const s = token && db.sessions[token];
