@@ -16,7 +16,8 @@ if (process.env.CONFIRM_MIGRATION !== 'CampusLoop') {
   throw new Error('Set CONFIRM_MIGRATION=CampusLoop to confirm the data import.');
 }
 
-const netlifyStore = getStore('campusloop', {
+const netlifyStore = getStore({
+  name: 'campusloop',
   siteID: process.env.NETLIFY_SITE_ID,
   token: process.env.NETLIFY_AUTH_TOKEN
 });
