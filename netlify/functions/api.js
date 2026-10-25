@@ -129,7 +129,11 @@ function me(db, token) {
 }
 const isAdmin = u => u.role === 'admin';
 const pub = u => ({ reg: u.reg, name: u.name, dept: u.dept || '', year: u.year || '', phone: u.phone || '', email: u.email || '', role: u.role || 'student' });
-const addN = (db, to, k, msg) => db.notes.unshift({ id: db.nid++, to, k, msg, read: false, ts: Date.now() });
+const addN = (db, to, k, msg, extra = {}) => {
+  const note = { id: db.nid++, to, k, msg, read: false, ts: Date.now(), ...extra };
+  db.notes.unshift(note);
+  return note;
+};
 const findItem = (db, id) => { const i = db.items.find(x => x.id == id); if (!i) fail(404, 'Listing not found.'); return i; };
 function inboxFor(db, user) {
   return db.reqs.filter(r => (r.from === user.reg || r.to === user.reg) && ['Accepted', 'Completed'].includes(r.status))
@@ -267,8 +271,9 @@ const A = {
     if (i.owner === u.reg) fail(400, "You can't request your own item.");
     if (i.status !== 'Available') fail(400, 'This item is no longer available.');
     if (db.reqs.some(r => r.item === i.id && r.from === u.reg && r.status === 'Pending')) fail(400, 'You already have a pending request for this item.');
-    db.reqs.unshift({ id: db.rid++, item: i.id, from: u.reg, to: i.owner, status: 'Pending', date: new Date().toLocaleDateString('en-IN') });
-    addN(db, i.owner, 'req', `${u.name} (${u.reg}) requested your item "${i.title}".`);
+    const request = { id: db.rid++, item: i.id, from: u.reg, to: i.owner, status: 'Pending', date: new Date().toLocaleDateString('en-IN') };
+    db.reqs.unshift(request);
+    addN(db, i.owner, 'req', `${u.name} (${u.reg}) requested your item "${i.title}".`, { requestId: request.id });
     return { ok: true };
   },
 
@@ -285,12 +290,12 @@ const A = {
         x.status = 'Declined';
         addN(db, x.from, 'no', `Sorry, "${i.title}" was reserved for another student.`);
       });
-      addN(db, r.from, 'ok', `Great news! The owner accepted your request for ${i.title}.`);
+      addN(db, r.from, 'ok', `Great news! The owner accepted your request for ${i.title}.`, { requestId: r.id });
     }
     if (b.status === 'Declined') addN(db, r.from, 'no', `Sorry, the owner declined your request for ${i.title}.`);
     if (b.status === 'Completed') {
       i.status = 'Completed';
-      addN(db, r.from, 'ok', `Handoff of ${i.title} marked as complete. Enjoy! ✿`);
+      addN(db, r.from, 'ok', `Handoff of ${i.title} marked as complete. Enjoy! ✿`, { requestId: r.id });
     }
     return { ok: true };
   },

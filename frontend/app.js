@@ -75,7 +75,15 @@ async function logout(){try{await api('logout')}catch(e){}logoutLocal();toast('L
 
 /* ---------- shell ---------- */
 const NAV=[['home','sprout','Home'],['browse','mail','Explore Finds'],['messages','mail','Messages'],['requests','mail','Request Items'],['give','heart','Give & Share'],['dash','smile','My Dashboard'],['help','mail','Help Center'],['profile','flower','My Profile']];
-function navTo(k){if(k==='give'){EDIT=null;IMG=''}if(k==='dash'&&unread())TAB='notes';go(k)}
+function navTo(k){
+  if(k==='give'){EDIT=null;IMG=''}
+  if(k==='dash'){
+    const hasPending=S.reqs.some(r=>r.to===S.me.reg&&r.status==='Pending');
+    if(hasPending)TAB='inc';
+    else if(!['list','inc','out','notes','wish'].includes(TAB))TAB='list';
+  }
+  go(k);
+}
 function go(p){if(p!=='messages'){clearInterval(CHAT_TIMER);CHAT_TIMER=0}CUR=p;render();scrollTo(0,0);if(p==='messages')loadInbox(CHAT_ID,false,true)}
 function shell(h){const m=S.me,un=unread();
   return `<div class=app><nav class=side><div class="logo pix">CAMPUS<b>LOOP</b></div><div class=who><b>${esc(m.name)}</b><br>${m.reg}${isAdmin()?' · admin':''}</div>
@@ -93,7 +101,7 @@ const wish=id=>run('wish',{id},j=>j.saved?'Saved for later ♥':'Removed from wi
 function notesHTML(n){const L=S.notes.slice().sort((a,b)=>b.ts-a.ts).slice(0,n);
   if(!L.length)return '<p class=empty>Every treasure deserves a second story.</p>';
   return (L.some(x=>!x.read)?`<div class=row style="margin:0 0 6px"><button class="btn sm r" onclick="readAll()">Mark all as read</button></div>`:'')+
-    L.map(x=>`<div class="nt ${x.read?'':'unread'}"><span>${KI[x.k]||'🌱'} ${x.read?'':'🔴 '}${esc(x.msg)}<br><small>${new Date(x.ts).toLocaleString()}</small></span>${x.read?'':`<button class="btn sm" onclick="readN(${x.id})">Mark as read</button>`}</div>`).join('')}
+    L.map(x=>{const r=x.requestId&&S.reqs.find(q=>q.id===x.requestId),actions=r&&r.to===S.me.reg&&r.status==='Pending'?`<button class="btn sm g" onclick="respond(${r.id},'Accepted')">Accept</button><button class="btn sm red" onclick="respond(${r.id},'Declined')">Decline</button>`:r&&['Accepted','Completed'].includes(r.status)?`<button class="btn sm g" onclick="openChat(${r.id})">${r.status==='Accepted'?(r.to===S.me.reg?'Message buyer':'Message seller'):'View chat'}</button>`:'';return `<div class="nt ${x.read?'':'unread'}"><span>${KI[x.k]||'🌱'} ${x.read?'':'🔴 '}${esc(x.msg)}<br><small>${new Date(x.ts).toLocaleString()}</small></span><span class=row style="margin:0">${actions}${!x.read?`<button class="btn sm r" onclick="readN(${x.id})">Mark as read</button>`:''}</span></div>`}).join('')}
 const readN=id=>run('readNotes',{id});
 const readAll=()=>run('readNotes',{});
 
