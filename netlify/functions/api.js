@@ -131,6 +131,21 @@ const isAdmin = u => u.role === 'admin';
 const pub = u => ({ reg: u.reg, name: u.name, dept: u.dept || '', year: u.year || '', phone: u.phone || '', email: u.email || '', role: u.role || 'student' });
 const addN = (db, to, k, msg) => db.notes.unshift({ id: db.nid++, to, k, msg, read: false, ts: Date.now() });
 const findItem = (db, id) => { const i = db.items.find(x => x.id == id); if (!i) fail(404, 'Listing not found.'); return i; };
+function inboxFor(db, user) {
+  return db.reqs.filter(r => (r.from === user.reg || r.to === user.reg) && ['Accepted', 'Completed'].includes(r.status))
+    .map(r => {
+      const messages = db.messages.filter(message => message.request === r.id).sort((a, b) => b.ts - a.ts);
+      const otherReg = user.reg === r.from ? r.to : r.from;
+      const other = db.users[otherReg];
+      return {
+        request: r.id, status: r.status, title: db.items.find(x => x.id === r.item)?.title || 'CampusLoop item',
+        other: { reg: otherReg, name: other?.name || 'CampusLoop user' },
+        lastMessage: messages[0]?.text || 'Request accepted — start a conversation.',
+        lastAt: messages[0]?.ts || 0,
+        unread: messages.filter(message => message.to === user.reg && !message.read).length
+      };
+    }).sort((a, b) => b.lastAt - a.lastAt);
+}
 
 const A = {
   async signup(db, b) {
@@ -162,6 +177,7 @@ const A = {
       items: db.items,
       reqs: db.reqs.filter(r => r.from === u.reg || r.to === u.reg),
       notes: db.notes.filter(n => n.to === u.reg),
+      unreadMessages: db.messages.filter(message => message.to === u.reg && !message.read).length,
       tickets: adm ? db.tickets : db.tickets.filter(t => t.from === u.reg),
       reports: adm ? db.reports : [],
       wish: db.wish[u.reg] || [],
@@ -287,8 +303,23 @@ const A = {
     return {
       status: r.status,
       title: db.items.find(x => x.id === r.item)?.title || 'CampusLoop item',
+      unreadMessages: db.messages.filter(message => message.to === u.reg && !message.read).length,
       messages: db.messages.filter(message => message.request === r.id).sort((a, b) => a.ts - b.ts)
     };
+  },
+
+  async readMessages(db, b) {
+    const u = me(db, b.token), id = Number(b.id);
+    const r = db.reqs.find(x => x.id === id);
+    if (!r || (u.reg !== r.from && u.reg !== r.to)) fail(403, 'This conversation is not available to you.');
+    if (!['Accepted', 'Completed'].includes(r.status)) fail(400, 'Chat is available after the seller accepts the request.');
+    db.messages.forEach(message => { if (message.request === r.id && message.to === u.reg) message.read = true; });
+    return { unreadMessages: db.messages.filter(message => message.to === u.reg && !message.read).length };
+  },
+
+  async inbox(db, b) {
+    const u = me(db, b.token);
+    return { unreadMessages: db.messages.filter(message => message.to === u.reg && !message.read).length, threads: inboxFor(db, u) };
   },
 
   async sendMessage(db, b) {
@@ -367,7 +398,7 @@ export default async (req) => {
   try {
     const db = await load();
     const out = await A[b.action](db, b);
-    await save(db);
+    if (b.action !== 'inbox' && b.action !== 'conversation') await save(db);
     return json(200, out);
   } catch (e) {
     if (e instanceof HttpError) return json(e.status, { error: e.message });

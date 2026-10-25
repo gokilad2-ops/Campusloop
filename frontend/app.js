@@ -20,7 +20,7 @@ const PRODUCT_PHOTOS={1:'https://images.unsplash.com/photo-1516979187457-637abb4
 
 const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"']/g,c=>'&#'+c.charCodeAt(0)+';');
 let S=null;                       // server state for the signed-in student
-let F={q:'',cat:'All',type:'',status:'',free:false,sort:'new'},TAB='list',EDIT=null,IMG='',CUR='home',MODE='login',CB=null,qi=0,CHAT_ID=null,CHAT_TIMER=0,CHAT_LOADING=false,CHAT_SENDING=false;
+let F={q:'',cat:'All',type:'',status:'',free:false,sort:'new'},TAB='list',EDIT=null,IMG='',CUR='home',MODE='login',CB=null,qi=0,CHAT_ID=null,CHAT_TIMER=0,CHAT_LOADING=false,CHAT_SENDING=false,INBOX=null,INBOX_LOADING=false,INBOX_ERROR='',CHAT_MESSAGES=[],CHAT_STATUS='Accepted';
 
 const isAdmin=()=>S.me.role==='admin';
 const U=r=>S.users[r]||{name:'Unknown',reg:r,phone:'—',email:'—',dept:'',year:''};
@@ -70,16 +70,16 @@ async function signup(e){e.preventDefault();const reg=$('#sr').value.trim(),name
   if(pw!==$('#sc').value)return bad('Passwords do not match.');
   try{await api('signup',{reg,name,password:pw});localStorage.setItem(LAST,reg);MODE='login';toast('Account created ✓ Please log in');render()}
   catch(err){toast(err.message,0)}}
-function logoutLocal(){localStorage.removeItem(TK);S=null;CUR='home';render()}
+function logoutLocal(){clearInterval(CHAT_TIMER);CHAT_TIMER=0;CHAT_ID=null;INBOX=null;CHAT_MESSAGES=[];CHAT_LOADING=false;CHAT_SENDING=false;INBOX_LOADING=false;S=null;CUR='home';render()}
 async function logout(){try{await api('logout')}catch(e){}logoutLocal();toast('Logged out. See you soon!')}
 
 /* ---------- shell ---------- */
-const NAV=[['home','sprout','Home'],['browse','mail','Explore Finds'],['requests','mail','Request Items'],['give','heart','Give & Share'],['dash','smile','My Dashboard'],['help','mail','Help Center'],['profile','flower','My Profile']];
+const NAV=[['home','sprout','Home'],['browse','mail','Explore Finds'],['messages','mail','Messages'],['requests','mail','Request Items'],['give','heart','Give & Share'],['dash','smile','My Dashboard'],['help','mail','Help Center'],['profile','flower','My Profile']];
 function navTo(k){if(k==='give'){EDIT=null;IMG=''}if(k==='dash'&&unread())TAB='notes';go(k)}
-function go(p){CUR=p;render();scrollTo(0,0)}
+function go(p){if(p!=='messages'){clearInterval(CHAT_TIMER);CHAT_TIMER=0}CUR=p;render();scrollTo(0,0);if(p==='messages')loadInbox(CHAT_ID,false,true)}
 function shell(h){const m=S.me,un=unread();
   return `<div class=app><nav class=side><div class="logo pix">CAMPUS<b>LOOP</b></div><div class=who><b>${esc(m.name)}</b><br>${m.reg}${isAdmin()?' · admin':''}</div>
-  ${NAV.map(([k,i,t])=>`<button class="nb ${CUR==k?'on':''}" onclick="navTo('${k}')">${sp(i,3)}${t}${k=='dash'&&un?`<span class=ct>${un}</span>`:''}</button>`).join('')}
+  ${NAV.map(([k,i,t])=>`<button class="nb ${CUR==k?'on':''}" onclick="navTo('${k}')">${sp(i,3)}${t}${k==='dash'&&un?`<span class=ct>${un}</span>`:''}${k==='messages'&&S.unreadMessages?`<span class=ct>${S.unreadMessages}</span>`:''}</button>`).join('')}
   <div style="flex:1"></div><button class=nb onclick="logout()">⎋ Log out</button></nav><main class=main>${h}</main></div>`}
 
 /* ---------- shared pieces ---------- */
@@ -117,28 +117,46 @@ function contact(id){const x=item(id),o=U(x.owner);
 function request(id){closeM();run('request',{id},'Notified to the owner ✓')}
 const respond=(id,st)=>run('respond',{id,status:st},'Request '+st.toLowerCase()+'.');
 function openChat(id){
-  const r=S.reqs.find(x=>x.id===id),x=r&&item(r.item);
-  if(!r)return;
-  modal(`<h2 class=pix style="font-size:18px">Chat about ${esc(x?.title||'your request')}</h2><p id=chatStatus class=chat-status>Loading conversation…</p><div id=chatMessages class=chat-messages aria-live=polite></div>
-  ${r.status==='Accepted'?`<form class=chat-form onsubmit="return sendChat(event,${id})"><textarea id=chatText maxlength=1000 rows=2 placeholder="Discuss the price or make an offer…" required></textarea><button class="btn g" id=chatSend>Send message</button></form>`:'<p class=chat-closed>This request is completed. You can view the conversation, but can no longer send messages.</p>'}
-  <small>Only the buyer and seller can see this conversation.</small>`);
-  CHAT_ID=id;
-  loadChat(id);
-  CHAT_TIMER=setInterval(()=>loadChat(id,true),4000);
+  if(CUR!=='messages'){
+    CHAT_ID=id;INBOX=null;INBOX_ERROR='';CHAT_MESSAGES=[];CHAT_STATUS='Accepted';CUR='messages';render();scrollTo(0,0);loadInbox(id,false,true);return;
+  }
+  if(CHAT_ID===id)return;
+  CHAT_ID=id;CHAT_MESSAGES=[];CHAT_STATUS='Accepted';render();loadChat(id,false,true);
 }
-async function loadChat(id,silent=false){
-  if(CHAT_ID!==id||CHAT_LOADING||CHAT_SENDING)return;
+async function loadInbox(selectId=CHAT_ID,silent=false,markRead=false){
+  if(INBOX_LOADING||CUR!=='messages')return;
+  INBOX_LOADING=true;
+  try{
+    const data=await api('inbox');
+    INBOX=data.threads;INBOX_ERROR='';S.unreadMessages=data.unreadMessages;
+    const currentId=CHAT_ID!==selectId&&INBOX.some(thread=>thread.request===CHAT_ID)?CHAT_ID:selectId;
+    if(!INBOX.some(thread=>thread.request===currentId))selectId=INBOX[0]?.request||null;
+    else selectId=currentId;
+    CHAT_ID=selectId;
+    if(!CHAT_ID){CHAT_MESSAGES=[];render();clearInterval(CHAT_TIMER);CHAT_TIMER=0;return}
+    render();
+    await loadChat(CHAT_ID,true,markRead);
+    if(CUR==='messages'&&CHAT_ID&&!CHAT_TIMER)CHAT_TIMER=setInterval(()=>loadInbox(CHAT_ID,true),5000);
+  }catch(err){INBOX_ERROR=err.message;if(!silent)toast(err.message,0);render();clearInterval(CHAT_TIMER);CHAT_TIMER=0}
+  finally{INBOX_LOADING=false}
+}
+async function loadChat(id,silent=false,markRead=false){
+  if(CHAT_ID!==id||CHAT_LOADING||CHAT_SENDING||CUR!=='messages')return;
   CHAT_LOADING=true;
   try{
+    if(markRead){const read=await api('readMessages',{id});if(CHAT_ID!==id)return;S.unreadMessages=read.unreadMessages}
     const data=await api('conversation',{id});
     if(CHAT_ID!==id)return;
-    const box=$('#chatMessages'),wasNearBottom=box.scrollHeight-box.scrollTop-box.clientHeight<50;
-    box.innerHTML=data.messages.length?data.messages.map(m=>`<div class="chat-bubble ${m.from===S.me.reg?'mine':'theirs'}"><b>${esc(U(m.from).name)}</b><p>${esc(m.text)}</p><small>${new Date(m.ts).toLocaleString()}</small></div>`).join(''):'<p class=empty>No messages yet. Start by discussing the price or making an offer.</p>';
-    if(wasNearBottom)box.scrollTop=box.scrollHeight;
-    const status=$('#chatStatus');if(status)status.textContent=data.status==='Accepted'?'Request accepted · discuss the handoff and agree on a price here.':'Request completed';
+    const oldLog=$('#inboxChatLog'),oldTop=oldLog?.scrollTop||0,wasNearBottom=!oldLog||oldLog.scrollHeight-oldLog.scrollTop-oldLog.clientHeight<50;
+    CHAT_MESSAGES=data.messages;CHAT_STATUS=data.status;
+    S.unreadMessages=data.unreadMessages;
+    const thread=INBOX?.find(x=>x.request===id);
+    if(thread){thread.unread=0;const latest=data.messages[data.messages.length-1];if(latest){thread.lastMessage=latest.text;thread.lastAt=latest.ts}}
+    render();
+    const newLog=$('#inboxChatLog');if(newLog)newLog.scrollTop=wasNearBottom?newLog.scrollHeight:oldTop;
   }catch(err){
-    if(CHAT_ID===id){const status=$('#chatStatus');if(status)status.textContent='Could not load messages: '+err.message;if(!silent)toast(err.message,0);clearInterval(CHAT_TIMER);CHAT_TIMER=0}
-  }finally{CHAT_LOADING=false}
+    if(CHAT_ID===id){INBOX_ERROR=err.message;if(!silent)toast(err.message,0);clearInterval(CHAT_TIMER);CHAT_TIMER=0;render()}
+  }finally{CHAT_LOADING=false;if(CUR==='messages'&&CHAT_ID&&CHAT_ID!==id)loadChat(CHAT_ID,true,true)}
 }
 async function sendChat(e,id){
   e.preventDefault();
@@ -148,10 +166,10 @@ async function sendChat(e,id){
   CHAT_SENDING=true;button.disabled=true;
   try{
     await api('sendMessage',{id,text});
-    input.value='';
     toast('Message sent ✓');
-    try{await refresh();render()}catch(err){toast('Message sent, but your dashboard could not refresh: '+err.message,0)}
-    await loadChat(id,true);
+    CHAT_SENDING=false;
+    try{await refresh()}catch(err){toast('Message sent, but your unread count could not refresh: '+err.message,0)}
+    await loadInbox(id,true);
   }catch(err){toast(err.message,0)}
   finally{CHAT_SENDING=false;if(CHAT_ID===id&&$('#chatSend'))$('#chatSend').disabled=false}
   return false;
@@ -249,6 +267,18 @@ function requests(){const m=S.me,av=S.items.filter(i=>i.owner!==m.reg&&i.status=
   <div class=pk><h2 class=pix>Available items (${av.length})</h2>${av.map(x=>`<div class=row2><span>${ICON[x.cat]||'📦'} <b>${esc(x.title)}</b> · ${money(x)} · ${x.cond} · Seller: ${esc(U(x.owner).name)}</span>
     <span class=row style="margin:0"><button class="btn sm" onclick="openItem(${x.id})">View</button><button class="btn sm g" onclick="request(${x.id})">Request</button></span></div>`).join('')||empty}</div>
   <div class="pk" style="background:#fff"><h2 class=pix>My requests (${out.length})</h2>${out.map(r=>`<div class=row2><span><b>${esc(item(r.item)?.title||'(removed)')}</b> · Owner: ${esc(U(r.to).name)} · ${r.date}</span><span class="tag ${r.status}">${r.status}</span></div>`).join('')||empty}</div>`}
+function messages(){
+  const threads=INBOX||[],selected=threads.find(thread=>thread.request===CHAT_ID);
+  const body=!INBOX?`<div class=inbox-placeholder>${INBOX_ERROR?`Could not load messages: ${esc(INBOX_ERROR)}`:'Loading your inbox…'}</div>`:
+    `<div class=inbox-layout><aside class=inbox-threads><h2>Chats</h2>${threads.length?threads.map(thread=>`<button class="inbox-thread ${thread.request===CHAT_ID?'active':''}" onclick="openChat(${thread.request})">
+      <span class=inbox-avatar>${esc((thread.other.name||'?').slice(0,1).toUpperCase())}</span><span class=inbox-summary><b>${esc(thread.other.name)}</b><small>${esc(thread.title)}</small><span class=inbox-preview>${esc(thread.lastMessage)}</span></span>
+      <span class=inbox-side>${thread.unread?`<i class=inbox-unread>${thread.unread}</i>`:''}${thread.lastAt?`<small>${new Date(thread.lastAt).toLocaleDateString()}</small>`:`<small>New</small>`}</span></button>`).join(''):`<p class=empty>No chats yet. Once a seller accepts your request, the conversation will appear here.</p>`}</aside>
+    <section class=inbox-conversation>${selected?`<header class=inbox-header><div><h2>${esc(selected.other.name)}</h2><p>${esc(selected.title)} · Request ${selected.status.toLowerCase()}</p></div><span class="tag ${selected.status}">${selected.status}</span></header>
+      <div id=inboxChatLog class=chat-messages aria-live=polite>${CHAT_MESSAGES.length?CHAT_MESSAGES.map(message=>`<div class="chat-bubble ${message.from===S.me.reg?'mine':'theirs'}"><b>${esc(U(message.from).name)}</b><p>${esc(message.text)}</p><small>${new Date(message.ts).toLocaleString()}</small></div>`).join(''):'<p class=empty>No messages yet. Start by discussing the price or making an offer.</p>'}</div>
+      ${selected.status==='Accepted'?`<form class=chat-form onsubmit="return sendChat(event,${selected.request})"><textarea id=chatText maxlength=1000 rows=2 placeholder="Discuss the price or make an offer…" required></textarea><button class="btn g" id=chatSend>Send</button></form>`:'<p class=chat-closed>This request is completed. You can read the conversation, but can no longer send messages.</p>'}
+      <small>Only you and ${esc(selected.other.name)} can see this conversation.</small>`:`<div class=inbox-placeholder>Select a chat to read and reply to messages.</div>`}</section></div>`;
+  return `<section class=hero><div><h1 class=pix>MESSAGES</h1><p style="margin-top:8px">Private chats about your accepted requests.</p></div><div class=art>${sp('mail',8)}</div></section>${body}`;
+}
 function help(){const adm=isAdmin(),mine=(S.tickets||[]).slice().sort((a,b)=>b.ts-a.ts);
   return `<section class=hero><div><h1 class=pix>HELP <span>CENTER</span></h1><p style="margin-top:8px">Need a hand? Send a message to the CampusLoop admin.</p></div><div class=art>${sp('mail',7)}${sp('sprout',6)}</div></section>
   <div class=help-card><h2 class=pix>Contact the admin</h2><p style="margin-top:6px;color:#555">Support email: <b>gokilad2@gmail.com</b></p>
@@ -273,7 +303,7 @@ function submitTicket(e){const message=$('#hmsg').value.trim();if(!message)retur
 const replyTicket=id=>run('ticketReply',{id,reply:$('#reply'+id).value},'Reply saved ✓');
 const statusTicket=(id,status)=>run('ticketStatus',{id,status},'Status updated ✓');
 const setReportStatus=(id,status)=>run('setReportStatus',{id,status},'Report status updated.');
-const PAGES={home,browse,requests,give,dash,help,profile};
+const PAGES={home,browse,requests,give,dash,help,profile,messages};
 
 /* ---------- render ---------- */
 function render(){
